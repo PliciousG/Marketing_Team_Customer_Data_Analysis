@@ -15,6 +15,7 @@ FROM SalesLT.CustomerAddress
 SELECT *
 FROM SalesLT.Address
 
+	
 -- To view the top 10 customers by revenue, the country they shipped to, the cities and their revenue
 
 SELECT TOP (10)
@@ -38,10 +39,24 @@ GROUP BY C.LastName,
 		A.CountryRegion
 ORDER BY Revenue DESC;
 
+
 -- Creating 4 distinct Customer segments using the total Revenue (orderqty * unitprice) by customer. 
 
-SELECT 
-	C.CustomerID,
+-- Method 1: Using NTILE
+SELECT C.CustomerID, 
+	C.CompanyName, 
+	SUM(SOD.OrderQty*SOD.UnitPrice) AS TotalRevenue,
+	NTILE(4) OVER (ORDER BY SUM(SOD.OrderQty*SOD.UnitPrice) DESC) AS CustomerSegment
+FROM SalesLT.SalesOrderHeader AS SOH
+	JOIN SalesLT.SalesOrderDetail AS SOD 
+		ON SOD.SalesOrderID = SOH.SalesOrderID
+	JOIN SalesLT.Customer AS C
+		ON C.CustomerID = SOH.CustomerID 
+GROUP BY C.CustomerID, 
+	C.CompanyName;
+
+-- Method 2: Using CASE
+SELECT C.CustomerID,
 	C.CompanyName,
 	SUM(SOD.OrderQty * SOD.UnitPrice) AS TotalRevenue,
 		CASE 
@@ -59,10 +74,10 @@ GROUP BY C.CompanyName,
 	C.CustomerID
 ORDER BY TotalRevenue DESC;
 
+
 -- To view which products with their respective categories, the customers bought on the last day of business?
 
-SELECT
-	C.CustomerID, 
+SELECT C.CustomerID, 
 	P.ProductID,
 	P.Name AS ProductName,
 	PC.Name AS ProductCategory,
@@ -76,16 +91,40 @@ FROM SalesLT.Customer AS C
 		ON SOD.ProductID = P.ProductID
 	JOIN SalesLT.ProductCategory AS PC
 		ON P.ProductCategoryID = PC.ProductCategoryID
-WHERE OrderDate =
-  (SELECT MAX(SOH.OrderDate)
-  FROM SalesLT.SalesOrderHeader AS SOH);
+WHERE OrderDate = (
+		SELECT MAX(SOH.OrderDate)
+  		FROM SalesLT.SalesOrderHeader AS SOH
+		);
 
--- Creating a View called 'customersegment' that stores the details (id, name, revenue) for customers and their segment?
 
+-- Creating a View called 'CustomerSegment' that stores the details (id, name, revenue) for customers and their segment?
+
+-- Method 1: Using NTILE
+CREATE VIEW CustomerSegment
+AS 
+	(
+	SELECT C.CustomerID, 
+		C.CompanyName, 
+		SUM(SOD.OrderQty*SOD.UnitPrice) AS TotalRevenue,
+		NTILE(4) OVER (ORDER BY SUM(SOD.OrderQty*SOD.UnitPrice) DESC) AS CustomerSegment
+	FROM SalesLT.SalesOrderHeader AS SOH
+		JOIN SalesLT.SalesOrderDetail AS SOD 
+			ON SOD.SalesOrderID = SOH.SalesOrderID
+		JOIN SalesLT.Customer AS C
+			ON C.CustomerID = SOH.CustomerID 
+	GROUP BY C.CustomerID, 
+		C.CompanyName
+	);
+
+	-- To assess the newly created View
+		SELECT * 
+		From CustomerSegment
+		ORDER BY TotalRevenue;
+
+-- Method 2: Using CASE
 CREATE VIEW CustomerSegment 
 AS
-	SELECT 
-		C.CustomerID,
+	SELECT C.CustomerID,
 		C.CompanyName,
 		SUM(SOD.OrderQty * SOD.UnitPrice) AS TotalRevenue,
 			CASE 
@@ -102,7 +141,7 @@ AS
 	GROUP BY C.CompanyName,
 		C.CustomerID;
 
-	--- To query the view
+	--- To assess the newly created View
 	
 			SELECT *
 			FROM CustomerSegment
@@ -114,10 +153,11 @@ AS
 SELECT *
 FROM
 	(SELECT 
+			SOD.ProductID AS ProductID,
 			P.Name AS ProductName, 
 			PC.Name AS ProductCategory,
 			SUM(SOD.OrderQty*SOD.UnitPrice) AS Revenue,
-			RANK() OVER (PARTITION BY PC.Name ORDER BY SUM(SOD.OrderQty * SOD.UnitPrice) DESC) AS ProductRank
+			RANK() OVER (PARTITION BY P.ProductCategoryID ORDER BY SUM(SOD.OrderQty * SOD.UnitPrice) DESC) AS ProductRank
 		FROM SalesLT.Product AS P
 			JOIN SalesLT.ProductCategory AS PC
 				ON P.ProductCategoryID = PC.ProductCategoryID
@@ -126,7 +166,6 @@ FROM
 		GROUP BY 
 			SOD.ProductID,
 			P.Name,
-			PC.Name) AS Product
-WHERE ProductRank <=3
-ORDER BY ProductCategory,
-	Revenue DESC;
+			PC.Name,
+			P.ProductCategoryID) AS Product
+WHERE ProductRank <=3;
